@@ -4,13 +4,16 @@ import threading
 import sys
 import logging
 import subprocess
+import os
 
-logging.basicConfig(filename = "proxy.log", level = logging.DEBUG, format = "%(asctime)s - %(message)s")
+
+logging.basicConfig(filename="proxy.log", level=logging.DEBUG, format="%(asctime)s - %(message)s")
+
 
 def proxy_thread(client, data):
     req = b''
 
-    logging.info("Получаем запрос")
+    logging.info("waiting data...")
     client.settimeout(0.1)
     while data:
         req += data
@@ -21,73 +24,77 @@ def proxy_thread(client, data):
 
     logging.info(req)
 
-    serv = ssl.wrap_socket(socket.socket())
-    serv.connect( ('server_url', 443) )
+    server_socket = ssl.wrap_socket(socket.socket())
+    server_socket.connect(('192.168.83.51', 443))
 
-    logging.info("Отправляем запрос на сервер")
-    serv.send(req)
+    logging.info("sending request to server")
+    server_socket.send(req)
 
-    logging.info("Получаем ответ сервера")
+    logging.info("receiving server answer")
     resp = b''
-    serv.settimeout(1)
-    data = serv.recv(1024)
+    server_socket.settimeout(1)
+    data = server_socket.recv(1024)
     while data:
         resp += data
         try:
-            data = serv.recv(1024)
+            data = server_socket.recv(1024)
         except socket.error:
             break
 
     logging.info(resp)
 
-    logging.info("Отдаем ответ клиенту")
+    logging.info("sending answer to client")
     client.send(resp)
-    
+
 
 def main_thread():
-    logging.info("Старт главного потока");
+    logging.info("main thread start")
 
-    sock = ssl.wrap_socket(socket.socket(), 'proxy.key', 'proxy.crt', True)
-    sock.bind( ('localhost', 43433) )
+    sock = ssl.wrap_socket(socket.socket(), 'key.pem', 'cert.pem', True)
+    sock.bind(('localhost', 9999))
     sock.listen(10)
 
     while True:
-        logging.info("Ждем входящее соединение");
+        logging.info("waiting incoming connections...")
         conn, addr = sock.accept()
 
         data = conn.recv(4)
         if data == b'STOP':
             break
 
-        logging.info("Получен запрос")
-        t = threading.Thread(target = proxy_thread, args = ( conn, data ) )
+        logging.info("request received")
+        t = threading.Thread(target=proxy_thread, args=(conn, data))
         t.run()
-    logging.info("Остановка")
+    logging.info("stop")
+
 
 def start():
-    logging.info("Запуск");
-    subprocess.Popen("py proxy.py daemon", creationflags=0x08000000, close_fds=True)
+    logging.info("runing")
+    subprocess.Popen("python proxy.py daemon", creationflags=0x08000000, close_fds=True)
+
 
 def stop():
-    logging.info("Останов");
+    logging.info("stoping")
 
     me = ssl.wrap_socket(socket.socket())
-    me.connect( ('localhost', 43433) )
+    me.connect(('localhost', 9999))
     me.send(b'STOP')
     me.close()
 
+
 def run():
     if sys.argv[1] == "start":
-        start();
+        start()
     elif sys.argv[1] == "stop":
-        stop();
+        stop()
     elif sys.argv[1] == "daemon":
-        main_thread();
+        main_thread()
     else:
-        print("Неизвестная комманда ", sys.argv[1])
+        print("unknown command ", sys.argv[1])
 
+main_thread()
 if len(sys.argv) > 1:
     run()
 else:
-    print("Запускайте с параметром start - запуск, stop - останов");
-       
+    print("start - run, stop - break")
+
